@@ -70,12 +70,10 @@ class Flow:
     @jax.jit(static_argnames="midpoint")
     def discrete(self, w, state, refU, *, midpoint: bool = False):
         L, g = jax.value_and_grad(self.loss_fn)(w)
-
         new_state = self.opt.update_state(state, g)
         new_w = w - self.opt.P(new_state).pow(-1)(g)
         w_mid = w + 0.5 * (new_w - w)
         state_mid = state + 0.5 * (new_state - state)
-
         L_mid = self.loss_fn(w_mid)
         if midpoint:
             eigs, U = compute_eigs(self.loss_fn, w_mid, refU, self.opt.P(state_mid))
@@ -117,9 +115,10 @@ class Flow:
         aux = jax.tree.map(lambda x: x[0], aux)
         return (w, state, U), aux
 
-    @partial(jax.jit, static_argnums=(1,))
-    def make_pred(self, f, w, U, X):
+    @staticmethod
+    @jax.jit(static_argnums=(0,))
+    def make_pred(f, w, U, X):
         f0 = f(w)
-        UtH = apply_to_pairs(lambda v: diff(f, w, 2, v), U)
+        UtH = lax.map(lambda v: diff(f, w, 2, v), U.T)
         UtHU = UtH @ U
-        return f0 + 0.5 * jnp.sum(X * UtHU)
+        return f0 + 0.5 * jnp.einsum("i...j,ij->...", UtHU, X)

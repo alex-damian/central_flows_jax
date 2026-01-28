@@ -6,7 +6,7 @@ import jax.numpy as jnp
 import numpy as np
 from jax import lax, vmap
 from jax.experimental.sparse.linalg import lobpcg_standard
-from jax.tree_util import tree_flatten
+from jax.tree_util import tree_flatten, tree_unflatten
 from jaxtyping import Array
 
 from .update_rules import Preconditioner
@@ -72,3 +72,10 @@ def compute_eigs(
     evals, V, _ = lobpcg_standard(vmap(hvp, 1, 1), refV, tol=eff_tol)
     U = vmap(P_inv_sqrt, 1, 1)(V)
     return evals, U
+
+
+def tree_stack(trees):
+    _, treedef = tree_flatten(trees[0])
+    leaf_list = [tree_flatten(tree)[0] for tree in trees]
+    leaf_stacked = [jnp.stack(leaves) for leaves in zip(*leaf_list)]
+    return tree_unflatten(treedef, leaf_stacked)
