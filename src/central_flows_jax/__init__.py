@@ -1,2 +1,2 @@
-from .flows import make_flow
+from .flows import Flow
 from .update_rules import GradientDescent, RMSProp

@@ -1,4 +1,4 @@
-from typing import Any, Callable, NamedTuple, Tuple
+from typing import Any, Callable, Tuple
 
 import jax
 import jax.numpy as jnp
@@ -9,12 +9,6 @@ from jaxtyping import Array
 from .sdcp import jax_solve_sdcp
 from .update_rules import Preconditioner, UpdateRule
 from .utils import apply_to_pairs, compute_eigs, diff, mat_to_upper, upper_to_mat
-
-
-class StepFunctions(NamedTuple):
-    discrete: Callable
-    stable: Callable
-    central: Callable
 
 
 def central_flow_substep(
@@ -66,28 +60,44 @@ def central_flow_substep(
     return (w, state, U), dict(L=L, eigs=eigs, X=X)
 
 
-def make_flow(loss_fn: Callable, opt: UpdateRule):
+@jax.tree_util.register_static
+class Flow:
+    def __init__(self, loss_fn: Callable, opt: UpdateRule):
+        self.loss_fn = loss_fn
+        self.opt = opt
+
     @jax.jit
-    def discrete_step(w: Array, state: Array, refU: Array):
-        P = opt.P(state)
-        eigs, U = compute_eigs(loss_fn, w, refU, P)
-        L, g = jax.value_and_grad(loss_fn)(w)
-        state = opt.update_state(state, g)
-        w -= opt.P(state).pow(-1)(g)
+    def discrete(self, w, state, refU):
+        P = self.opt.P(state)
+        L, g = jax.value_and_grad(self.loss_fn)(w)
+        state = self.opt.update_state(state, g)
+        eigs, U = compute_eigs(self.loss_fn, w, refU, P)
+        w -= self.opt.P(state).pow(-1)(g)
         return (w, state, U), dict(L=L, eigs=eigs)
 
     @jax.jit
-    def stable_flow_step(w: Array, state: Array, refU: Array, eps: float = 0.5):
-        L = loss_fn(w)
-        P = opt.P(state)
-        eigs, U = compute_eigs(loss_fn, w, refU, P)
+    def midpoint(self, w, state, refU):
+        g = jax.grad(self.loss_fn)(w)
+        new_state = self.opt.update_state(state, g)
+        new_w = w - self.opt.P(new_state).pow(-1)(g)
+        w_mid = w + 0.5 * (new_w - w)
+        state_mid = state + 0.5 * (new_state - state)
+        L = self.loss_fn(w_mid)
+        eigs, U = compute_eigs(self.loss_fn, w_mid, refU, self.opt.P(state_mid))
+        return (new_w, new_state, U), dict(L=L, eigs=eigs)
+
+    @jax.jit
+    def stable(self, w, state, refU, eps=0.5):
+        L = self.loss_fn(w)
+        P = self.opt.P(state)
+        eigs, U = compute_eigs(self.loss_fn, w, refU, P)
         n_substeps = jnp.ceil(eigs.max() / eps).astype(int)
         dt = 1 / n_substeps
 
         def substep(w, state):
-            g = jax.grad(loss_fn)(w)
-            P = opt.P(state)
-            dstate_dt = opt.dstate_dt(state, g)
+            g = jax.grad(self.loss_fn)(w)
+            P = self.opt.P(state)
+            dstate_dt = self.opt.dstate_dt(state, g)
             dw_dt = -P.pow(-1)(g)
             new_state = state + dt * dstate_dt
             new_w = w + dt * dw_dt
@@ -99,15 +109,13 @@ def make_flow(loss_fn: Callable, opt: UpdateRule):
         return (w, state, U), dict(L=L, eigs=eigs)
 
     @jax.jit
-    def central_flow_step(w: Array, state: Array, refU: Array, substeps: int = 4):
+    def central(self, w, state, refU, substeps=4):
         dt = 1 / substeps
 
         def step_fn(val, _):
             w, state, refU = val
-            return central_flow_substep(loss_fn, opt, w, state, refU, dt)
+            return central_flow_substep(self.loss_fn, self.opt, w, state, refU, dt)
 
         (w, state, U), aux = lax.scan(step_fn, (w, state, refU), None, length=substeps)
         aux = jax.tree.map(lambda x: x[0], aux)
         return (w, state, U), aux
-
-    return StepFunctions(discrete_step, stable_flow_step, central_flow_step)
