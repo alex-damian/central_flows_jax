@@ -23,7 +23,6 @@ def _upper_to_mat(x):
     k = int(math.sqrt(2 * x.size))
     i, j = jnp.triu_indices(k)
     scale = jnp.where(i == j, 1.0, 1.0 / jnp.sqrt(2))
-
     vals = x * scale
     m = jnp.zeros((k, k), dtype=vals.dtype)
     m = m.at[i, j].set(vals)

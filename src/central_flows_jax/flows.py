@@ -1,3 +1,4 @@
+from functools import partial
 from typing import Any, Callable, Tuple
 
 import jax
@@ -66,25 +67,21 @@ class Flow:
         self.loss_fn = loss_fn
         self.opt = opt
 
-    @jax.jit
-    def discrete(self, w, state, refU):
-        P = self.opt.P(state)
+    @jax.jit(static_argnames="midpoint")
+    def discrete(self, w, state, refU, *, midpoint: bool = False):
         L, g = jax.value_and_grad(self.loss_fn)(w)
-        state = self.opt.update_state(state, g)
-        eigs, U = compute_eigs(self.loss_fn, w, refU, P)
-        w -= self.opt.P(state).pow(-1)(g)
-        return (w, state, U), dict(L=L, eigs=eigs)
 
-    @jax.jit
-    def midpoint(self, w, state, refU):
-        g = jax.grad(self.loss_fn)(w)
         new_state = self.opt.update_state(state, g)
         new_w = w - self.opt.P(new_state).pow(-1)(g)
         w_mid = w + 0.5 * (new_w - w)
         state_mid = state + 0.5 * (new_state - state)
-        L = self.loss_fn(w_mid)
-        eigs, U = compute_eigs(self.loss_fn, w_mid, refU, self.opt.P(state_mid))
-        return (new_w, new_state, U), dict(L=L, eigs=eigs)
+
+        L_mid = self.loss_fn(w_mid)
+        if midpoint:
+            eigs, U = compute_eigs(self.loss_fn, w_mid, refU, self.opt.P(state_mid))
+        else:
+            eigs, U = compute_eigs(self.loss_fn, w, refU, self.opt.P(state))
+        return (new_w, new_state, U), dict(L=L, L_mid=L, eigs=eigs)
 
     @jax.jit
     def stable(self, w, state, refU, eps=0.5):
@@ -119,3 +116,10 @@ class Flow:
         (w, state, U), aux = lax.scan(step_fn, (w, state, refU), None, length=substeps)
         aux = jax.tree.map(lambda x: x[0], aux)
         return (w, state, U), aux
+
+    @partial(jax.jit, static_argnums=(1,))
+    def make_pred(self, f, w, U, X):
+        f0 = f(w)
+        UtH = apply_to_pairs(lambda v: diff(f, w, 2, v), U)
+        UtHU = UtH @ U
+        return f0 + 0.5 * jnp.sum(X * UtHU)
