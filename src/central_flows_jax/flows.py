@@ -20,10 +20,10 @@ def opt_step(
 ) -> Tuple[Tuple[Array, Array, Array], dict]:
     P = opt.P(state)
     eigs, U = compute_eigs(loss_fn, w, refU, P)
-    g = jax.grad(loss_fn)(w)
+    L, g = jax.value_and_grad(loss_fn)(w)
     state = opt.update_state(state, g)
     w -= opt.P(state).pow(-1)(g)
-    return (w, state, U), dict(eigs=eigs)
+    return (w, state, U), dict(L=L, eigs=eigs)
 
 
 def stable_flow_step(
@@ -34,6 +34,7 @@ def stable_flow_step(
     refU: Array,
     eps: float = 0.5,
 ) -> Tuple[Tuple[Array, Array, Array], dict]:
+    L = loss_fn(w)
     P = opt.P(state)
     eigs, U = compute_eigs(loss_fn, w, refU, P)
     n_substeps = jnp.ceil(eigs.max() / eps)
@@ -49,7 +50,7 @@ def stable_flow_step(
         return new_w, new_state
 
     w, state = lax.fori_loop(0, n_substeps, lambda i, val: substep(*val), (w, state))
-    return (w, state, U), dict(eigs=eigs)
+    return (w, state, U), dict(L=L, eigs=eigs)
 
 
 def central_flow_substep(
@@ -60,7 +61,7 @@ def central_flow_substep(
     refU: Array,
     dt: float,
 ) -> Tuple[Tuple[Array, Array, Array], dict]:
-    g = grad(loss_fn)(w)
+    L, g = jax.value_and_grad(loss_fn)(w)
     P = opt.P(state)
     eigs, U = compute_eigs(loss_fn, w, refU, P)
     k = U.shape[1]
@@ -98,7 +99,7 @@ def central_flow_substep(
 
     w += dt * dw_dt
     state += dt * dstate_dt
-    return (w, state, U), dict(eigs=eigs, X=X)
+    return (w, state, U), dict(L=L, eigs=eigs, X=X)
 
 
 def central_flow_step(
