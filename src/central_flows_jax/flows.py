@@ -22,7 +22,7 @@ def central_flow_substep(
 ) -> Tuple[Tuple[Array, Array, Array], dict]:
     L, g = jax.value_and_grad(loss_fn)(w)
     P = opt.P(state)
-    eigs, U = compute_eigs(loss_fn, w, refU, P)
+    eigs, U, matvecs = compute_eigs(loss_fn, w, refU, P)
     k = U.shape[1]
 
     dH_dw_fn = lambda u, v: diff(loss_fn, w, 3, u, v)
@@ -58,7 +58,9 @@ def central_flow_substep(
 
     w += dt * dw_dt
     state += dt * dstate_dt
-    return (w, state, U), dict(L=L, eigs=eigs, X=X)
+    return (w, state, U), dict(
+        L=L, eigs=eigs, X=X, counts=dict(d2L=matvecs, d3L=k * (k + 1) // 2)
+    )
 
 
 @jax.tree_util.register_static
@@ -76,32 +78,35 @@ class Flow:
         state_mid = state + 0.5 * (new_state - state)
         L_mid = self.loss_fn(w_mid)
         if midpoint:
-            eigs, U = compute_eigs(self.loss_fn, w_mid, refU, self.opt.P(state_mid))
+            eig_args = w_mid, refU, self.opt.P(state_mid)
         else:
-            eigs, U = compute_eigs(self.loss_fn, w, refU, self.opt.P(state))
-        return (new_w, new_state, U), dict(L=L, L_mid=L, eigs=eigs)
+            eig_args = w, refU, self.opt.P(state)
+        eigs, U, matvecs = compute_eigs(self.loss_fn, *eig_args)
+        return (new_w, new_state, U), dict(
+            L=L, L_mid=L, eigs=eigs, counts=dict(d2L=matvecs)
+        )
 
     @jit
     def stable(self, w, state, refU, *, eps=0.5):
         L = self.loss_fn(w)
         P = self.opt.P(state)
-        eigs, U = compute_eigs(self.loss_fn, w, refU, P)
-        n_substeps = jnp.ceil(eigs.max() / eps).astype(int)
-        dt = 1 / n_substeps
+        eigs, U, matvecs = compute_eigs(self.loss_fn, w, refU, P)
+        substeps = jnp.ceil(eigs.max() / eps).astype(int)
+        dt = 1 / substeps
 
         def substep(w, state):
             g = jax.grad(self.loss_fn)(w)
             P = self.opt.P(state)
             dstate_dt = self.opt.dstate_dt(state, g)
             dw_dt = -P.pow(-1)(g)
-            new_state = state + dt * dstate_dt
-            new_w = w + dt * dw_dt
-            return new_w, new_state
+            state += dt * dstate_dt
+            w += dt * dw_dt
+            return w, state
 
-        w, state = lax.fori_loop(
-            0, n_substeps, lambda i, val: substep(*val), (w, state)
+        w, state = lax.fori_loop(0, substeps, lambda i, val: substep(*val), (w, state))
+        return (w, state, U), dict(
+            L=L, eigs=eigs, substeps=substeps, counts=dict(d2L=matvecs)
         )
-        return (w, state, U), dict(L=L, eigs=eigs)
 
     @jit(static_argnames="substeps")
     def central(self, w, state, refU, *, substeps=4):
@@ -112,7 +117,11 @@ class Flow:
             return central_flow_substep(self.loss_fn, self.opt, w, state, refU, dt)
 
         (w, state, U), aux = lax.scan(step_fn, (w, state, refU), None, length=substeps)
+        Xs = aux.pop("X")
+        counts = aux.pop("counts")
         aux = jax.tree.map(lambda x: x[0], aux)
+        aux["X"] = Xs.mean(0)
+        aux["counts"] = jax.tree.map(jnp.sum, counts)
         return (w, state, U), aux
 
     @staticmethod
