@@ -3,7 +3,7 @@ from typing import Any, Callable, Tuple
 
 import jax
 import jax.numpy as jnp
-from jax import grad, lax, vmap
+from jax import grad, jit, lax, vmap
 from jax.experimental.sparse.linalg import lobpcg_standard
 from jaxtyping import Array
 
@@ -67,7 +67,7 @@ class Flow:
         self.loss_fn = loss_fn
         self.opt = opt
 
-    @jax.jit(static_argnames="midpoint")
+    @jit(static_argnames="midpoint")
     def discrete(self, w, state, refU, *, midpoint: bool = False):
         L, g = jax.value_and_grad(self.loss_fn)(w)
         new_state = self.opt.update_state(state, g)
@@ -81,8 +81,8 @@ class Flow:
             eigs, U = compute_eigs(self.loss_fn, w, refU, self.opt.P(state))
         return (new_w, new_state, U), dict(L=L, L_mid=L, eigs=eigs)
 
-    @jax.jit
-    def stable(self, w, state, refU, eps=0.5):
+    @jit
+    def stable(self, w, state, refU, *, eps=0.5):
         L = self.loss_fn(w)
         P = self.opt.P(state)
         eigs, U = compute_eigs(self.loss_fn, w, refU, P)
@@ -103,8 +103,8 @@ class Flow:
         )
         return (w, state, U), dict(L=L, eigs=eigs)
 
-    @jax.jit
-    def central(self, w, state, refU, substeps=4):
+    @jit(static_argnames="substeps")
+    def central(self, w, state, refU, *, substeps=4):
         dt = 1 / substeps
 
         def step_fn(val, _):
@@ -116,7 +116,7 @@ class Flow:
         return (w, state, U), aux
 
     @staticmethod
-    @jax.jit(static_argnums=(0,))
+    @jit(static_argnums=0)
     def make_pred(f, w, U, X):
         f0 = f(w)
         UtH = lax.map(lambda v: diff(f, w, 2, v), U.T)
