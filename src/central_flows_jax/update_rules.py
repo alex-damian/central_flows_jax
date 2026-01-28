@@ -29,7 +29,7 @@ class GradientDescent(UpdateRule):
     def __post_init__(self):
         self.lr_fn = to_schedule(self.lr)
 
-    def initialize_state(self, w: Array) -> Array:
+    def init(self, w: Array) -> Array:
         state = {"t": jnp.array(0.0, dtype=w.dtype)}
         flat_state, self.unflatten = ravel_pytree(state)
         return flat_state
