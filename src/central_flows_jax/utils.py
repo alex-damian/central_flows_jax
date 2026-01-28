@@ -65,9 +65,11 @@ def compute_eigs(
     P: Optional[Preconditioner] = None,
     tol: float = 1e-5,
 ) -> Tuple[Array, Array]:
+    P_sqrt = (lambda x: x) if P is None else P.pow(1 / 2)
     P_inv_sqrt = (lambda x: x) if P is None else P.pow(-1 / 2)
+    refV = vmap(P_sqrt, 1, 1)(refU)
     hvp = lambda v: P_inv_sqrt(diff(loss_fn, w, 2, P_inv_sqrt(v)))
     eff_tol = tol / (10 * len(w))  # undo lobpcg tol scaling
-    evals, evecs, _ = lobpcg_standard(vmap(hvp, 1, 1), refU, tol=eff_tol)
-    evecs = vmap(P_inv_sqrt, 1, 1)(evecs)
-    return evals, evecs
+    evals, V, _ = lobpcg_standard(vmap(hvp, 1, 1), refV, tol=eff_tol)
+    U = vmap(P_inv_sqrt, 1, 1)(V)
+    return evals, U
