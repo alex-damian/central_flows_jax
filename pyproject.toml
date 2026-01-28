@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "central_flows_jax"
+version = "0.1.0"
+description = "A JAX implementation of centralflows.github.io"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = ["jax", "jaxtyping", "cvxpy", "numpy", "cvxopt"]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[tool.setuptools.packages.find]
+where = ["src"]

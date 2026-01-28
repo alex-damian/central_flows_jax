@@ -9,7 +9,7 @@ from jax.experimental.sparse.linalg import lobpcg_standard
 from jax.tree_util import tree_flatten
 from jaxtyping import Array
 
-from update_rules import Preconditioner
+from .update_rules import Preconditioner
 
 
 def mat_to_upper(x):

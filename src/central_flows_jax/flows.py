@@ -5,11 +5,10 @@ import jax.numpy as jnp
 from jax import grad, lax, vmap
 from jax.experimental.sparse.linalg import lobpcg_standard
 from jaxtyping import Array
-from jaxutil import diff
 
-from sdcp import jax_solve_sdcp
-from update_rules import Preconditioner, UpdateRule
-from utils import apply_to_pairs, compute_eigs, mat_to_upper, upper_to_mat
+from .sdcp import jax_solve_sdcp
+from .update_rules import Preconditioner, UpdateRule
+from .utils import apply_to_pairs, compute_eigs, diff, mat_to_upper, upper_to_mat
 
 
 def opt_step(
