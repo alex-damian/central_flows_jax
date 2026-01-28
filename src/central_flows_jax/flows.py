@@ -37,8 +37,8 @@ def stable_flow_step(
     L = loss_fn(w)
     P = opt.P(state)
     eigs, U = compute_eigs(loss_fn, w, refU, P)
-    n_substeps = jnp.ceil(eigs.max() / eps)
-    dt = (1 / n_substeps).astype(int)
+    n_substeps = jnp.ceil(eigs.max() / eps).astype(int)
+    dt = 1 / n_substeps
 
     def substep(w, state):
         g = jax.grad(loss_fn)(w)

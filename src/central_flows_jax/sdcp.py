@@ -11,9 +11,10 @@ def get_sdcp_problem(k):
     A = cp.Parameter((k, k), name="A", symmetric=True)
     L = cp.Parameter((k**2, k**2), name="L")  # B = LLᵀ
     X = cp.Variable((k, k), name="X", PSD=True)
+    X_vec = cp.vec(X, order="C")
     # quadratic program: min_X  1/2 B[X,X] + ⟨A,X⟩
     # equivalent to the SDCP when B is PSD
-    objective = 0.5 * cp.sum_squares(L.T @ cp.vec(X)) + cp.sum(cp.multiply(A, X))
+    objective = 0.5 * cp.sum_squares(L.T @ X_vec) + cp.sum(cp.multiply(A, X))
     return cp.Problem(cp.Minimize(objective))
 
 
